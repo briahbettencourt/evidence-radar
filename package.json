@@ -1,0 +1,12 @@
+{
+  "name": "evidence-radar",
+  "version": "0.1.0",
+  "description": "Tracks new health, wellness and longevity research, graded by study design. Returns evidence to read, not conclusions to repeat.",
+  "main": "src/radar.js",
+  "bin": { "evidence-radar": "bin/cli.js" },
+  "scripts": { "scan": "node bin/cli.js" },
+  "keywords": ["health","longevity","wellness","evidence-based","research","pubmed","europepmc","meta-analysis","newsletter"],
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "files": ["src","bin","README.md","LICENSE"]
+}
