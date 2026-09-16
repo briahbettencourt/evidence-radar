@@ -31,6 +31,11 @@ ${bold("Options")}
   --md           Markdown output
   --abstracts    Include abstracts (markdown only)
   --loose        Skip the title-relevance filter (more results, more noise)
+  --include-clinical
+                 Keep findings in clinical populations (dropped by default)
+  --include-methods
+                 Keep device-validation, diagnostic-accuracy and prevalence
+                 papers (dropped by default)
   --per-term N   Max findings per matched term, so one popular term cannot
                  monopolise the topic (default 2)
 
@@ -42,7 +47,7 @@ ${bold("Examples")}
 }
 
 function parse(argv) {
-  const o = { days: 90, tiers: [1, 2], limit: 25, md: false, abstracts: false, loose: false, perTerm: 2 };
+  const o = { days: 90, tiers: [1, 2], limit: 25, md: false, abstracts: false, loose: false, perTerm: 2, includeClinical: false, includeMethods: false };
   const topic = argv.find((a) => !a.startsWith("-"));
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -52,6 +57,8 @@ function parse(argv) {
     else if (a === "--md") o.md = true;
     else if (a === "--abstracts") o.abstracts = true;
     else if (a === "--per-term") o.perTerm = parseInt(argv[++i], 10) || o.perTerm;
+    else if (a === "--include-clinical") o.includeClinical = true;
+    else if (a === "--include-methods") o.includeMethods = true;
     else if (a === "--loose") o.loose = true;
   }
   return { topic, o };

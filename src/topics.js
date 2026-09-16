@@ -18,14 +18,24 @@
  */
 
 const TOPICS = {
+  // Behaviour-first, deliberately. Sleep medicine is dominated by apnoea and CPAP
+  // research, which crowded out everything a reader can actually act on. Apnoea is
+  // now excluded rather than included: it is a diagnosis that belongs with a doctor,
+  // not a habit anyone changes after reading a newsletter.
   sleep: {
     label: "Sleep",
     include: [
-      "sleep duration", "sleep quality", "sleep hygiene", "insomnia",
-      "circadian rhythm", "chronotype", "sleep restriction", "CBT-I",
-      "obstructive sleep apnoea", "obstructive sleep apnea",
+      "sleep duration", "sleep quality", "sleep hygiene", "sleep regularity",
+      "sleep timing", "sleep efficiency", "sleep extension", "sleep restriction",
+      "insomnia", "CBT-I", "circadian rhythm", "chronotype",
+      "social jetlag", "social jet lag", "daytime napping", "bright light therapy",
     ],
-    exclude: ["anaesthesia", "anesthesia", "sedation", "intensive care", "ventilator"],
+    exclude: [
+      "anaesthesia", "anesthesia", "sedation", "intensive care", "ventilator",
+      "obstructive sleep apnoea", "obstructive sleep apnea",
+      "continuous positive airway pressure", "CPAP",
+      "transcranial", "electroencephalographic",
+    ],
   },
 
   recovery: {

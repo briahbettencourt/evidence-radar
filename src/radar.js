@@ -63,14 +63,101 @@ function toFinding(raw) {
  * mentions X usually does not. `--loose` disables this when you want recall over
  * precision.
  */
+function distinctiveHeads(topic) {
+  // A head word shared by several terms is the topic's generic stem, not evidence
+  // of relevance: every one of "sleep duration", "sleep quality" and "sleep hygiene"
+  // reduces to "sleep", which then matches any paper with "sleep" in the title.
+  // That is how apnoea screening and EEG papers kept ranking as sleep-hygiene
+  // research. Shared heads require the full phrase; unique heads keep the shortcut.
+  if (topic._heads) return topic._heads;
+  const counts = new Map();
+  for (const t of topic.include) {
+    const h = t.toLowerCase().split(" ")[0];
+    counts.set(h, (counts.get(h) || 0) + 1);
+  }
+  topic._heads = new Set([...counts].filter(([h, n]) => n === 1 && h.length > 4).map(([h]) => h));
+  return topic._heads;
+}
+
+function termInTitle(title, term, heads) {
+  const t = term.toLowerCase();
+  if (title.includes(t)) return true;
+  const head = t.split(" ")[0];
+  return heads.has(head) && title.includes(head);
+}
+
 function titleMatches(finding, topic) {
   const title = (finding.title || "").toLowerCase();
-  return topic.include.some((term) => {
-    const t = term.toLowerCase();
-    // Match the distinctive word in multi-word terms too ("sleep duration" → "sleep").
-    const head = t.split(" ")[0];
-    return title.includes(t) || (head.length > 4 && title.includes(head));
-  });
+  const heads = distinctiveHeads(topic);
+  return topic.include.some((term) => termInTitle(title, term, heads));
+}
+
+/**
+ * Clinical-population filter, applied to titles.
+ *
+ * Keyword exclusion in the query is whack-a-mole: it caught "cancer patients" but
+ * not "Melatonin for Sleep Disorders in Cancer", and every miss needs a new string.
+ * These patterns instead match the *grammar* of a population claim — "in X with Y",
+ * "patients with", "survivors" — which is how titles actually name their cohort.
+ *
+ * Deliberately narrow: "cancer risk" and "cancer prevention" are outcomes in a
+ * general population and must survive, so only positional uses of the disease are
+ * matched. Disable with --include-clinical.
+ */
+const POPULATION_PATTERNS = [
+  /\bpatients with\b/,
+  /\b(in|among|for|with) (adults|people|patients|individuals|women|men|children|veterans|survivors)\b[^.]*\bwith\b/,
+  /\b(neonates|infants|preterm|pregnant women|nursing home|care home|p[ae]diatric)\b/,
+  /\b(in|among|with|for) (advanced |metastatic )?(cancer|dementia|schizophrenia|cirrhosis|copd|hiv|parkinson|alzheimer|epilepsy)\b/,
+  /\b(cancer|stroke|covid|icu) survivors\b/,
+  /\b(critically ill|hospitalised|hospitalized|institutionalised|institutionalized)\b/,
+  /\bundergoing (surgery|chemotherapy|dialysis|transplantation)\b/,
+];
+
+/**
+ * Animal and in-vitro work.
+ *
+ * Topic-level excludes caught some of this, but unevenly — a creatine scan still
+ * returned "Creatine and cognitive function in rodents". A rodent finding presented
+ * to a general reader is the single most common way wellness media misleads, so
+ * this is checked centrally rather than per topic.
+ */
+const NON_HUMAN_PATTERNS = [
+  /\b(rodents?|mice|murine|rats?|zebrafish|drosophila|c\. ?elegans|canine|porcine|bovine)\b/,
+  /\bin (vitro|vivo)\b/,
+  /\banimal (model|study|studies)\b/,
+];
+
+/**
+ * Papers about measuring or predicting rather than about doing something.
+ *
+ * Device-validation, diagnostic-accuracy, prognostic-model and prevalence papers
+ * are legitimate science and completely unusable to a reader deciding what to do
+ * on Monday — "Accuracy of Photoplethysmography-Derived Pulse Rate Variability
+ * Compared with Electrocardiography" is not a recovery tip. Disable with
+ * --include-methods if you want them.
+ */
+const METHODS_PATTERNS = [
+  /\b(accuracy|validity|reliability|validation|diagnostic performance|diagnostic variability)\b/,
+  /\b(prognostic value|risk prediction model|prediction models?|screening tools?)\b/,
+  /\b(prevalence|epidemiology) (and|of)\b/,
+  /\bcompared with electrocardiograph/,
+  /\b(bibliometric|knowledge mapping|scoping review)\b/,
+];
+
+function isNonHuman(finding) {
+  const title = (finding.title || "").toLowerCase();
+  return NON_HUMAN_PATTERNS.some((re) => re.test(title));
+}
+
+function isMethodsPaper(finding) {
+  const title = (finding.title || "").toLowerCase();
+  return METHODS_PATTERNS.some((re) => re.test(title));
+}
+
+function isClinicalPopulation(finding) {
+  const title = (finding.title || "").toLowerCase();
+  return POPULATION_PATTERNS.some((re) => re.test(title));
 }
 
 /**
@@ -88,11 +175,9 @@ function rank(findings) {
  */
 function matchedTerm(finding, topic) {
   const title = (finding.title || "").toLowerCase();
+  const heads = distinctiveHeads(topic);
   return topic.include.find((t) => title.includes(t.toLowerCase())) ||
-    topic.include.find((t) => {
-      const head = t.toLowerCase().split(" ")[0];
-      return head.length > 4 && title.includes(head);
-    }) || null;
+    topic.include.find((t) => termInTitle(title, t, heads)) || null;
 }
 
 /**
@@ -125,7 +210,10 @@ function diversify(findings, topic, perTerm) {
 }
 
 async function scanTopic(topicKey, opts = {}) {
-  const { days = 90, tiers = [1, 2], limit = 25, loose = false, perTerm = 2 } = opts;
+  const {
+    days = 90, tiers = [1, 2], limit = 25,
+    loose = false, perTerm = 2, includeClinical = false, includeMethods = false,
+  } = opts;
   const topic = TOPICS[topicKey];
   const query = buildQuery(topicKey, { days, tiers });
 
@@ -133,7 +221,11 @@ async function scanTopic(topicKey, opts = {}) {
   const { total, results } = await search(query, { limit: loose ? limit : Math.min(limit * 5, 100) });
 
   const all = results.map(toFinding);
-  const onTopic = loose ? all : all.filter((f) => titleMatches(f, topic));
+  const relevant = loose ? all : all.filter((f) => titleMatches(f, topic));
+  const onTopic = relevant.filter((f) =>
+    (includeClinical || !isClinicalPopulation(f)) &&
+    (includeMethods || !isMethodsPaper(f)) &&
+    !isNonHuman(f));
   const spread = loose ? onTopic : diversify(rank(onTopic), topic, perTerm);
 
   const findings = rank(spread).slice(0, limit).map((f) => ({ ...f, matched: matchedTerm(f, topic) }));
@@ -144,7 +236,8 @@ async function scanTopic(topicKey, opts = {}) {
     windowDays: days,
     totalMatches: total,
     scanned: all.length,
-    filteredOut: all.length - onTopic.length,
+    filteredOut: all.length - relevant.length,
+    clinicalDropped: relevant.length - onTopic.length,  // clinical + methods + non-human
     crowdedOut: onTopic.length - spread.length,
     loose,
     findings,
@@ -194,4 +287,4 @@ function toMarkdown(report, { abstracts = false } = {}) {
   return lines.join("\n");
 }
 
-module.exports = { search, scanTopic, toMarkdown, toFinding, rank };
+module.exports = { search, scanTopic, toMarkdown, toFinding, rank, isClinicalPopulation, isNonHuman, isMethodsPaper };
