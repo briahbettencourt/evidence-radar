@@ -82,16 +82,61 @@ function rank(findings) {
   return findings.sort((a, b) => (a.tier - b.tier) || String(b.date).localeCompare(String(a.date)));
 }
 
+/**
+ * Which topic term a finding matched. Used for diversity, and worth surfacing so
+ * a reader can see why a paper was returned.
+ */
+function matchedTerm(finding, topic) {
+  const title = (finding.title || "").toLowerCase();
+  return topic.include.find((t) => title.includes(t.toLowerCase())) ||
+    topic.include.find((t) => {
+      const head = t.toLowerCase().split(" ")[0];
+      return head.length > 4 && title.includes(head);
+    }) || null;
+}
+
+/**
+ * Cap how many results any single term can claim.
+ *
+ * Without this, the most-published term swamps the topic: a nutrition scan
+ * returned 6 of 10 results on Mediterranean diet alone, burying time-restricted
+ * eating, fibre and ultra-processed food entirely. Same problem the Marshal
+ * scanner had with document types, same fix — quota, then round-robin.
+ */
+function diversify(findings, topic, perTerm) {
+  const buckets = new Map();
+  for (const f of findings) {
+    const key = matchedTerm(f, topic) || "_other";
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(f);
+  }
+  const out = [];
+  let drew = true;
+  while (drew) {
+    drew = false;
+    for (const [key, list] of buckets) {
+      if (!list.length) continue;
+      if (out.filter((f) => (matchedTerm(f, topic) || "_other") === key).length >= perTerm) continue;
+      out.push(list.shift());
+      drew = true;
+    }
+  }
+  return out;
+}
+
 async function scanTopic(topicKey, opts = {}) {
-  const { days = 90, tiers = [1, 2], limit = 25, loose = false } = opts;
+  const { days = 90, tiers = [1, 2], limit = 25, loose = false, perTerm = 2 } = opts;
   const topic = TOPICS[topicKey];
   const query = buildQuery(topicKey, { days, tiers });
 
   // Over-fetch, because title filtering discards a large share of abstract-only matches.
-  const { total, results } = await search(query, { limit: loose ? limit : Math.min(limit * 4, 100) });
+  const { total, results } = await search(query, { limit: loose ? limit : Math.min(limit * 5, 100) });
 
   const all = results.map(toFinding);
-  const kept = loose ? all : all.filter((f) => titleMatches(f, topic));
+  const onTopic = loose ? all : all.filter((f) => titleMatches(f, topic));
+  const spread = loose ? onTopic : diversify(rank(onTopic), topic, perTerm);
+
+  const findings = rank(spread).slice(0, limit).map((f) => ({ ...f, matched: matchedTerm(f, topic) }));
 
   return {
     topic: topicKey,
@@ -99,9 +144,10 @@ async function scanTopic(topicKey, opts = {}) {
     windowDays: days,
     totalMatches: total,
     scanned: all.length,
-    filteredOut: all.length - kept.length,
+    filteredOut: all.length - onTopic.length,
+    crowdedOut: onTopic.length - spread.length,
     loose,
-    findings: rank(kept).slice(0, limit),
+    findings,
     query,
   };
 }
@@ -128,6 +174,7 @@ function toMarkdown(report, { abstracts = false } = {}) {
     }
     lines.push(`### ${f.title}`);
     lines.push("");
+    if (f.matched) lines.push(`- **Matched on:** ${f.matched}`);
     lines.push(`- **Journal:** ${f.journal || "not stated"}`);
     lines.push(`- **Published:** ${f.date || "unknown"}`);
     lines.push(`- **Full text:** ${f.openAccess ? "open access" : "paywalled"}`);

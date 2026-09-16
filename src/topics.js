@@ -80,6 +80,27 @@ const TOPICS = {
 };
 
 /**
+ * Clinical-population exclusions, applied to every topic.
+ *
+ * The literature is written by clinicians, so a general-wellness query returns
+ * studies in disease populations: diabetic nephropathy, coronary heart disease,
+ * dialysis cohorts. That research is real and often excellent, but a finding in
+ * patients with type 1 diabetes does not transfer to a general reader, and
+ * implying it does is exactly the failure mode this project exists to avoid.
+ *
+ * Testing "nutrition" without these returned 6 of 10 results in clinical
+ * populations.
+ */
+const CLINICAL_EXCLUSIONS = [
+  "type 1 diabetes", "type 2 diabetes", "diabetic nephropathy", "diabetic retinopathy",
+  "coronary heart disease", "heart failure", "dialysis", "chronic kidney disease",
+  "cancer patients", "chemotherapy", "post-transplant", "critically ill",
+  "cirrhosis", "COPD", "rheumatoid arthritis", "multiple sclerosis",
+  "bariatric surgery", "schizophrenia",
+  "spinal cord injury", "steatotic liver disease", "NAFLD", "stroke survivors",
+];
+
+/**
  * Study designs, best evidence first. A newsletter that treats a mouse study and
  * a meta-analysis as equivalent is worse than no newsletter, so grade is reported
  * alongside every finding rather than hidden behind a relevance score.
@@ -91,12 +112,13 @@ const EVIDENCE_TIERS = [
   { tier: 4, label: "Review / other", match: ["Review", "Journal Article", "research-article"] },
 ];
 
-function buildQuery(topicKey, { days = 90, tiers = [1, 2] } = {}) {
+function buildQuery(topicKey, { days = 90, tiers = [1, 2], clinical = true } = {}) {
   const topic = TOPICS[topicKey];
   if (!topic) throw new Error(`Unknown topic "${topicKey}". Known: ${Object.keys(TOPICS).join(", ")}`);
 
   const inc = topic.include.map((t) => `TITLE_ABS:"${t}"`).join(" OR ");
-  const exc = (topic.exclude || []).map((t) => `NOT TITLE_ABS:"${t}"`).join(" ");
+  const excludeTerms = [...(topic.exclude || []), ...(clinical ? CLINICAL_EXCLUSIONS : [])];
+  const exc = excludeTerms.map((t) => `NOT TITLE_ABS:"${t}"`).join(" ");
 
   const types = EVIDENCE_TIERS.filter((t) => tiers.includes(t.tier))
     .flatMap((t) => t.match)
@@ -119,4 +141,4 @@ function gradeOf(pubTypes = []) {
   return EVIDENCE_TIERS[EVIDENCE_TIERS.length - 1];
 }
 
-module.exports = { TOPICS, EVIDENCE_TIERS, buildQuery, gradeOf };
+module.exports = { TOPICS, EVIDENCE_TIERS, CLINICAL_EXCLUSIONS, buildQuery, gradeOf };
