@@ -57,7 +57,9 @@ A high tier means a **stronger design**, not a correct conclusion. A well-conduc
 
 ## Honest limitations
 
-**Results skew clinical.** The literature is written by clinicians, so a sleep scan returns CPAP trials and cancer-related sleep disturbance more readily than sleep-hygiene research. Useful, but not always the consumer angle. Improving this means refining the queries in `topics.js`, which is the most useful contribution anyone could make here.
+**Results still skew clinical, and the fix is partial.** The literature is written by clinicians, so a general-wellness query returns studies in disease populations — dialysis cohorts, diabetic nephropathy, post-transplant. A finding in patients with type 1 diabetes does not transfer to a general reader, and implying it does is the failure mode this project exists to avoid. `CLINICAL_EXCLUSIONS` in `topics.js` now filters the recurring ones, but it is a hand-maintained list, which means it is whack-a-mole: measured on a nutrition scan it lifted usable results from roughly 2–3 in 10 to 6 in 10, while a sleep scan is still only about 3 in 8. Refining `topics.js` is the most useful contribution anyone could make here.
+
+**One term can monopolise a topic.** Search volume is wildly uneven — an early nutrition scan gave 6 of 10 slots to Mediterranean diet alone, burying fibre, time-restricted eating and ultra-processed food. Results are now capped per matched term (`--per-term`, default 2) and drawn round-robin, and each finding reports which term it matched so you can see why it was returned. Set `--per-term 99` for the old behaviour.
 
 **Title filtering trades recall for precision.** Europe PMC matches title *and* abstract, so a cardiology trial mentioning sleep once ranks alongside a real sleep study. Testing returned "aromatherapy for menopausal symptoms" under sleep. The filter requires a topic term in the **title**, which cuts noise sharply but will occasionally drop a relevant paper whose title is oblique. Use `--loose` to disable it.
 
@@ -77,6 +79,7 @@ node bin/cli.js nutrition --days 30 --md      # markdown, last month
 node bin/cli.js longevity --tiers 1 --limit 10  # meta-analyses only
 node bin/cli.js fitness --md --abstracts > fitness.md
 node bin/cli.js recovery --loose              # no title filter, more noise
+node bin/cli.js nutrition --per-term 1        # maximum topic spread, one paper per term
 ```
 
 As a library:
